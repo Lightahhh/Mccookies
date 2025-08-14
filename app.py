@@ -80,8 +80,8 @@ class TaskType(db.Model):
 def index():
     return render_template('index.html')
 
-@app.route('/signup', methods=['GET', 'POST'])
-def signup():
+@app.route('/register', methods=['GET', 'POST'])
+def register():
     if request.method == 'POST':
         email = request.form.get('email')
         username = request.form.get('username') 
@@ -90,7 +90,7 @@ def signup():
         # Validation
         if not email or not username or not password:
             flash('All fields are required!')
-            return redirect(url_for('signup'))
+            return redirect(url_for('register'))
         
         # Check if user already exists
         existing_user = User.query.filter(
@@ -99,7 +99,7 @@ def signup():
         
         if existing_user:
             flash('User with this email or username already exists!')
-            return redirect(url_for('signup'))
+            return redirect(url_for('register'))
         
         # Create new user
         try:
@@ -116,13 +116,13 @@ def signup():
         except Exception as e:
             db.session.rollback()
             flash('Error creating account. Please try again.')
-            print(f"Signup error: {e}")
-            return redirect(url_for('signup'))
+            print(f"register error: {e}")
+            return redirect(url_for('register'))
     
-    return render_template('signup.html')
+    return render_template('register.html')
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
+@app.route('/register', methods=['GET', 'POST'])
+def register():
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
