@@ -1,10 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, Task, TaskType
 import os
-from dotenv import load_dotenv
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+import bcrypt
 
-load_dotenv()
-
+# Initialize Flask app
 app = Flask(__name__)
 
 # Configuration
@@ -12,12 +12,68 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-i
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///local.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Fix PostgreSQL URL format (Railway uses postgres://, but SQLAlchemy needs postgresql://)
+# Fix PostgreSQL URL format for Railway
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://')
 
 # Initialize database
-db.init_app(app)
+db = SQLAlchemy(app)
+
+# Database Models
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    cookies_earned = db.Column(db.Integer, default=0)
+    total_tasks_completed = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+    
+    def set_password(self, password):
+        salt = bcrypt.gensalt()
+        self.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    
+    def check_password(self, password):
+        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'username': self.username,
+            'cookies_earned': self.cookies_earned,
+            'total_tasks_completed': self.total_tasks_completed,
+            'created_at': self.created_at.isoformat()
+        }
+
+class Task(db.Model):
+    __tablename__ = 'tasks'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    task_type = db.Column(db.String(50), nullable=False)
+    task_name = db.Column(db.String(200), nullable=False)
+    task_url = db.Column(db.String(500))
+    cookies_reward = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default='completed')
+    completed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    user = db.relationship('User', backref='tasks')
+
+class TaskType(db.Model):
+    __tablename__ = 'task_types'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True, nullable=False)
+    description = db.Column(db.String(200), nullable=False)
+    cookies_reward = db.Column(db.Integer, nullable=False)
+    task_url = db.Column(db.String(500))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Routes
 @app.route('/')
@@ -178,66 +234,36 @@ def logout():
     flash('You have been logged out.')
     return redirect(url_for('index'))
 
-# Health check endpoint for Railway
 @app.route('/health')
 def health():
-    return {'status': 'healthy', 'database': 'connected'}, 200
+    return {'status': 'healthy'}, 200
 
-# Initialize database and create sample data
+# Initialize database
 def init_db():
     with app.app_context():
         try:
-            # Create all tables
             db.create_all()
-            print("✅ Database tables created successfully!")
+            print("✅ Database tables created!")
             
-            # Create sample task types if they don't exist
+            # Create sample task types if none exist
             if TaskType.query.count() == 0:
                 sample_tasks = [
-                    TaskType(
-                        name='survey',
-                        description='Complete Online Survey',
-                        cookies_reward=10,
-                        task_url='https://example.com/survey'
-                    ),
-                    TaskType(
-                        name='video_watch',
-                        description='Watch YouTube Video',
-                        cookies_reward=5,
-                        task_url='https://youtube.com/watch?v=example'
-                    ),
-                    TaskType(
-                        name='social_follow',
-                        description='Follow Social Media Account',
-                        cookies_reward=3,
-                        task_url='https://twitter.com/example'
-                    ),
-                    TaskType(
-                        name='app_install',
-                        description='Install Mobile App',
-                        cookies_reward=15,
-                        task_url='https://play.google.com/store/apps/details?id=example'
-                    ),
-                    TaskType(
-                        name='website_visit',
-                        description='Visit Partner Website',
-                        cookies_reward=2,
-                        task_url='https://example.com'
-                    ),
+                    TaskType(name='survey', description='Complete Online Survey', cookies_reward=10),
+                    TaskType(name='video_watch', description='Watch YouTube Video', cookies_reward=5),
+                    TaskType(name='social_follow', description='Follow Social Media Account', cookies_reward=3),
+                    TaskType(name='app_install', description='Install Mobile App', cookies_reward=15),
+                    TaskType(name='website_visit', description='Visit Partner Website', cookies_reward=2),
                 ]
                 
                 for task in sample_tasks:
                     db.session.add(task)
                 
                 db.session.commit()
-                print("✅ Sample task types created!")
-            else:
-                print("📋 Task types already exist, skipping creation")
-                
+                print("✅ Sample tasks created!")
         except Exception as e:
-            print(f"❌ Database initialization error: {e}")
+            print(f"❌ Database error: {e}")
 
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port)
